@@ -1,0 +1,23 @@
+{
+  "A1001": {
+    "item": "laptop",
+    "price": 1200.0,
+    "currency": "USD",
+    "purchased": "2026-05-20",
+    "warranty_months": 12
+  },
+  "A1002": {
+    "item": "monitor",
+    "price": 350.0,
+    "currency": "USD",
+    "purchased": "2024-02-15",
+    "warranty_months": 24
+  },
+  "A1003": {
+    "item": "mechanical keyboard",
+    "price": 90.0,
+    "currency": "USD",
+    "purchased": "2025-11-01",
+    "warranty_months": 12
+  }
+}

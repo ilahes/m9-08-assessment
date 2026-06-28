@@ -1,0 +1,70 @@
+====================================================================
+M9-08 ASSESSMENT — BOUNDED MULTI-TOOL ORDER AGENT
+====================================================================
+
+[USER GOAL]
+I want two more of order A1001. What would those two cost, and is the original still under warranty?
+
+[RELIABILITY] Maximum tool calls: 6
+[SAFETY] Order IDs and calculator expressions are validated; arbitrary code execution is rejected.
+
+[TOOL CALL] lookup_order
+{
+  "order_id": "A1001"
+}
+[TOOL RESULT] lookup_order
+{
+  "ok": true,
+  "order_id": "A1001",
+  "item": "laptop",
+  "price": 1200.0,
+  "currency": "USD",
+  "purchased": "2026-05-20",
+  "warranty_months": 12
+}
+
+[TOOL CALL] calculate
+{
+  "expression": "1200 * 2"
+}
+[TOOL RESULT] calculate
+{
+  "ok": true,
+  "result": 2400
+}
+
+[TOOL CALL] check_warranty
+{
+  "order_id": "A1001"
+}
+[TOOL RESULT] check_warranty
+{
+  "ok": true,
+  "order_id": "A1001",
+  "as_of": "2026-06-28",
+  "warranty_active": true,
+  "warranty_end": "2027-05-20"
+}
+
+[AGENT DRAFT]
+Two more of order A1001 would cost 2400 USD. The original order is still under warranty.
+
+[STRUCTURED FINAL RESULT]
+{
+  "status": "success",
+  "order_id": "A1001",
+  "item": "laptop",
+  "quantity": 2,
+  "unit_price": 1200.0,
+  "total_cost": 2400.0,
+  "currency": "USD",
+  "warranty_active": true,
+  "warranty_end": "2027-05-20",
+  "as_of": "2026-06-28",
+  "tools_used": [
+    "lookup_order",
+    "calculate",
+    "check_warranty"
+  ],
+  "message": "Two more of order A1001 would cost 2400 USD. The original order is still under warranty."
+}

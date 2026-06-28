@@ -1,66 +1,170 @@
-![logo_ironhack_blue 7](https://user-images.githubusercontent.com/23629340/40541063-a07a0a8a-601a-11e8-91b5-2f13e4e6b441.png)
-
 # Assessment | Ship a Multi-Tool Agent
 
-## Overview
+## Scenario
 
-This is your chance to put the second half of the unit together. You'll build a small but genuinely useful **agent** that uses **three tools** to accomplish a real, multi-step goal — deciding its own steps, the way an agent should — and returns a **structured result**. Then you'll show you understand the grown-up parts: one reliability safeguard and one safety mitigation.
+I built a **bounded multi-tool order assistant** using the Google Gen AI SDK.
+The user goal is:
 
-No RAG is required here. This is about **agents and tool use**: an agent that reasons, calls tools, and acts.
+> I want two more of order A1001. What would those two cost, and is the original still under warranty?
 
-## What You'll Build
+This goal cannot be completed reliably with one tool call. The model receives three
+Python tools and decides which tools to call and in what order.
 
-An agent (use **Google ADK**, or a hand-rolled loop if you prefer — your choice) that:
+## The three tools
 
-- has **three tools** it can call,
-- is given a **multi-step goal** it can't satisfy with a single tool call,
-- **decides for itself** which tools to use and in what order,
-- returns a **structured final result** (e.g. a small JSON object or a clearly formatted report), and
-- is **bounded** (a step limit) and **guarded** (one safety mitigation you implement and explain).
+1. `lookup_order(order_id)`
+   - Reads local order data from `orders.json`.
+   - Returns the item, unit price, currency, purchase date, and warranty length.
 
-### Pick a scenario (or invent your own)
+2. `check_warranty(order_id)`
+   - Calculates the warranty end date from the stored purchase data.
+   - Returns whether the original item is under warranty on the current date.
 
-Choose one that interests you — these are starting points, not requirements:
+3. `calculate(expression)`
+   - Calculates the cost of the requested quantity.
+   - Uses a restricted arithmetic parser rather than Python `eval`.
 
-- **Trip concierge** — tools: `search_flights`, `search_hotels`, `calculate`. Goal: "Plan a 3-day trip to Porto under €600 and give me the total." Output: a structured itinerary with a cost breakdown.
-- **Order assistant** — tools: `lookup_order`, `check_warranty`, `calculate`. Goal: "I want two more of my last order — total cost, and is it still under warranty?" Output: a structured summary.
-- **Study planner** — tools: `list_topics`, `estimate_effort`, `calculate`. Goal: "Build me a study plan for the exam with total hours." Output: a structured plan.
+I chose these tools because each has one clear responsibility and the user goal
+requires order retrieval, warranty checking, and arithmetic.
 
-Your tools can use small local data files (like the `orders.json` you've seen) or return mock data — the focus is the **agent's behaviour**, not a real backend.
+## Agent behaviour
 
-## Requirements
+The tools are supplied to Gemini as callable Python functions. The model is not
+following a hard-coded sequence in application code: it reads the goal, selects a
+tool, supplies arguments, observes the tool result, and continues until it has enough
+evidence for a final answer.
 
-Your submission must include:
+Every tool call and tool result is printed, so the run shows the model's selected
+actions. The completed run is then normalized into a validated `OrderResult` JSON
+object using a Pydantic response schema.
 
-1. **A working agent** with three tools that solves the multi-step goal by its own tool choices (not a script you hardwired).
-2. **A structured output** — the final answer in a parseable, well-shaped form, not just free text.
-3. **A step limit** so the agent cannot loop forever, with a sensible cap.
-4. **One safety mitigation** that you implement and can justify — for example, treating tool results as untrusted data, validating a tool's arguments before acting, or requiring confirmation before a "destructive" tool runs.
-5. **A README** in your repo covering:
-   - which scenario and three tools you chose, and why,
-   - one **reliability** note (how your step limit / failure handling protects the run),
-   - one **safety** note (the mitigation you added and what attack it defends against),
-   - a captured run showing the agent's tool calls and structured result.
+## Structured output
 
-## Submission
+The final output is parseable JSON with this general shape:
 
-Work on a branch, commit your code and README, open a Pull Request, and paste its link into the submission box.
+```json
+{
+  "status": "success",
+  "order_id": "A1001",
+  "item": "laptop",
+  "quantity": 2,
+  "unit_price": 1200.0,
+  "total_cost": 2400.0,
+  "currency": "USD",
+  "warranty_active": true,
+  "warranty_end": "2027-05-20",
+  "as_of": "YYYY-MM-DD",
+  "tools_used": [
+    "lookup_order",
+    "calculate",
+    "check_warranty"
+  ],
+  "message": "A concise result summary."
+}
+```
 
-**Deadline:** Sunday 28 June 2026, 23:59 local time. Late submissions are scored at 70% maximum.
+The order of `tools_used` may differ because the agent chooses its own sequence.
 
-## Grading Rubric (100 pts)
+## Reliability safeguard
 
-| Area | What we look for | Points |
-|---|---|---|
-| **Agent works** | Three tools; the multi-step goal is solved by the agent's own tool choices | 30 |
-| **Structured output** | Final result is well-shaped and parseable, not free text | 15 |
-| **Reliability** | A working step limit; graceful handling when a tool fails or the goal can't be met | 20 |
-| **Safety** | A real mitigation, correctly implemented and clearly justified | 20 |
-| **README & run** | Clear tool choices, reliability + safety notes, and a captured run | 15 |
+The run is bounded by `MAX_TOOL_CALLS = 6`. The Google Gen AI SDK automatic
+function-calling configuration is set so no more than six tool calls can occur. This
+prevents an accidental infinite agent loop and limits API usage.
 
-## Quality Bar
+Tool functions return structured errors such as `{"ok": false, "error": "..."}`
+instead of crashing. The system instruction tells the agent not to repeat a failed
+call forever. A top-level exception handler also returns a structured error result and
+writes the failure to `transcript.txt`.
 
-- The agent **decides its own steps** — reviewers should see tool calls it chose, not a fixed script
-- The output is genuinely **structured** and could be consumed by another program
-- Both the **step limit** and the **safety mitigation** actually run, and you can explain what each protects against
-- No API key is committed to the repo
+## Safety mitigation
+
+Tool arguments are treated as untrusted input.
+
+- Order IDs must match the strict pattern `A` followed by four digits.
+- The calculator does **not** use `eval`.
+- It parses expressions with Python's `ast` module and permits only numeric constants,
+  `+`, `-`, `*`, `/`, unary signs, and parentheses.
+- Function calls, imports, attribute access, comprehensions, and other Python syntax
+  are rejected.
+- Expression length and numeric magnitude are limited.
+
+This mitigates code-injection attacks such as:
+
+```python
+__import__('os').system('dir')
+```
+
+The agent instruction also says never to follow instructions embedded inside tool
+results, which reduces the risk of indirect prompt injection from untrusted tool data.
+
+## Files
+
+- `agent.py` — tools, bounded agent run, structured output, and transcript capture
+- `orders.json` — local mock order data
+- `offline_checks.py` — no-network checks for normal, failure, and attack cases
+- `requirements.txt` — Python dependencies
+- `.env.example` — variable-name example only; it contains no real key
+- `transcript.txt` — generated captured run; commit it after a successful run
+
+## Setup and run
+
+### Windows Command Prompt
+
+```bat
+cd path\to\m9-08-assessment
+py -m venv .venv
+.venv\Scripts\activate
+python -m pip install -r requirements.txt
+python offline_checks.py
+set GOOGLE_API_KEY=YOUR_REAL_KEY
+python agent.py
+set GOOGLE_API_KEY=
+```
+
+### PowerShell
+
+```powershell
+cd path\to\m9-08-assessment
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python offline_checks.py
+$env:GOOGLE_API_KEY="YOUR_REAL_KEY"
+python agent.py
+Remove-Item Env:GOOGLE_API_KEY
+```
+
+`agent.py` automatically writes the complete visible run to `transcript.txt`.
+Do not place the API key in source code, `.env.example`, the README, or the transcript.
+
+## Offline verification
+
+Run:
+
+```bash
+python offline_checks.py
+```
+
+The checks verify:
+
+- a known order succeeds,
+- unknown and malformed order IDs fail safely,
+- normal arithmetic succeeds,
+- division by zero is handled,
+- import/function-call injection is rejected,
+- attribute-access injection is rejected, and
+- warranty calculation succeeds.
+
+## Captured run
+
+The captured run is stored in [`transcript.txt`](transcript.txt). It includes:
+
+- the multi-step user goal,
+- the configured step limit and safety statement,
+- every model-selected tool call and its arguments,
+- every structured tool result,
+- the agent draft, and
+- the final validated JSON result.
+
+After running `python agent.py` successfully, review `transcript.txt` and commit it with
+the rest of the submission.
